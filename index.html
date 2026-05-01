@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>タイムカード</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+  :root {
+    --bg:#eef1f5;--surface:#fff;--primary:#2563eb;--primary-hover:#1d4ed8;
+    --secondary:#64748b;--secondary-hover:#475569;--text:#1e293b;--text-light:#64748b;
+    --success:#16a34a;--border:#e2e8f0;--danger:#dc2626;
+    --shadow:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;-webkit-user-select:none;user-select:none}
+  .screen{display:none;height:100vh;flex-direction:column}.screen.active{display:flex}
+  .header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .header-logo{font-weight:900;font-size:16px;color:var(--primary);letter-spacing:.5px}
+  .header-nav{display:flex;gap:8px}
+  .header-nav button{background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:13px;font-family:'Noto Sans JP',sans-serif;color:var(--text-light);cursor:pointer;transition:all .15s}
+  .header-nav button:hover,.header-nav button:active{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .clock-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px}
+  .date-display{font-family:'JetBrains Mono',monospace;font-size:clamp(20px,4vw,28px);font-weight:700;letter-spacing:2px}
+  .analog-clock{width:100px;height:100px;border-radius:50%;border:2px solid var(--border);position:relative;margin:4px 0;background:var(--surface)}
+  .clock-center{width:6px;height:6px;background:#ef4444;border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10}
+  .clock-hand{position:absolute;bottom:50%;left:50%;transform-origin:bottom center;border-radius:2px}
+  .hand-hour{width:3px;height:26px;background:var(--text)}.hand-minute{width:2px;height:34px;background:var(--text)}.hand-second{width:1px;height:38px;background:#ef4444}
+  .clock-mark{position:absolute;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-light);font-weight:700}
+  .time-display{font-family:'JetBrains Mono',monospace;font-size:clamp(48px,10vw,72px);font-weight:700;letter-spacing:3px;line-height:1}
+  .stamp-buttons{display:flex;gap:16px;padding:24px;justify-content:center}
+  .stamp-btn{flex:1;max-width:240px;padding:28px 16px;border:2px solid var(--border);border-radius:12px;font-family:'Noto Sans JP',sans-serif;font-size:28px;font-weight:900;cursor:pointer;transition:all .15s;background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+  .stamp-btn.selected{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 4px 16px rgba(37,99,235,.3)}
+  .stamp-btn:not(.selected):active{background:#f1f5f9}
+  .status-bar{padding:12px 24px;text-align:center;font-size:15px;color:var(--text-light);min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .status-bar.success{color:var(--success);font-weight:700}.status-bar.error{color:var(--danger);font-weight:700}
+  .connect-bar{padding:8px 24px;display:flex;align-items:center;justify-content:center;gap:12px}
+  .connect-btn{border:none;border-radius:8px;padding:10px 24px;font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:700;cursor:pointer;color:#fff;transition:all .15s}
+  .connect-btn.connect{background:var(--primary)}.connect-btn.connect:hover{background:var(--primary-hover)}
+  .connect-btn.disconnect{background:var(--danger)}
+  .connect-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8}
+  .connect-indicator.connected{background:var(--success);box-shadow:0 0 6px rgba(22,163,74,.5)}
+  .connect-indicator.polling{background:var(--success);animation:blink 1s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  .connect-label{font-size:13px;color:var(--text-light)}
+
+  .records-container{flex:1;overflow-y:auto;padding:16px 24px;-webkit-overflow-scrolling:touch}
+  .records-date-filter{display:flex;align-items:flex-end;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .form-group{display:flex;flex-direction:column;gap:4px}
+  .form-group label{font-size:12px;color:var(--text-light);font-weight:700}
+  .form-group input,.form-group select{font-family:'Noto Sans JP',sans-serif;font-size:15px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+  .records-table{width:100%;border-collapse:collapse;font-size:14px;background:var(--surface);border-radius:8px;overflow:hidden;box-shadow:var(--shadow)}
+  .records-table th{background:#f8fafc;padding:10px 12px;text-align:left;font-weight:700;color:var(--text-light);font-size:12px;letter-spacing:.5px;border-bottom:2px solid var(--border)}
+  .records-table td{padding:8px 10px;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:13px}
+  .records-table td.name-cell{font-family:'Noto Sans JP',sans-serif;font-weight:700}
+  .records-table tr:last-child td{border-bottom:none}
+  .time-input{font-family:'JetBrains Mono',monospace;font-size:13px;border:1px solid var(--border);border-radius:4px;padding:4px 6px;width:100px;background:var(--surface);color:var(--text)}
+  .time-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+  .time-input.changed{border-color:#f59e0b;background:#fffbeb}
+  .save-bar{padding:12px 24px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);background:var(--surface)}
+  .action-btn{border:none;border-radius:8px;padding:10px 20px;font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;color:#fff}
+  .action-btn.primary{background:var(--primary)}.action-btn.primary:hover{background:var(--primary-hover)}
+  .action-btn.secondary{background:var(--secondary)}.action-btn.secondary:hover{background:var(--secondary-hover)}
+  .action-btn.success{background:var(--success)}.action-btn.success:hover{background:#15803d}
+  .action-btn:disabled{opacity:.5;cursor:not-allowed}
+  .members-container{flex:1;overflow-y:auto;padding:16px 24px;-webkit-overflow-scrolling:touch}
+  .member-form{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end}
+  .member-form input{width:140px}
+  .member-list{background:var(--surface);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+  .member-item{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .member-item:last-child{border-bottom:none}
+  .member-info{display:flex;flex-direction:column;gap:2px}
+  .member-name{font-weight:700;font-size:15px}
+  .member-id{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-light)}
+  .delete-btn{background:none;border:1px solid #fecaca;color:var(--danger);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:'Noto Sans JP',sans-serif}
+  .settings-link{font-size:12px;color:var(--text-light);text-decoration:underline;cursor:pointer;margin-top:8px}
+  .manual-entry{background:var(--surface);border-radius:8px;box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+  .manual-entry summary{font-weight:700;font-size:14px;color:var(--primary);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}
+  .manual-entry summary::-webkit-details-marker{display:none}
+  .manual-entry summary::before{content:'＋';font-size:16px;font-weight:900}
+  .manual-entry[open] summary::before{content:'−'}
+  .manual-entry-form{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:flex-end}
+  .manual-entry-form select,.manual-entry-form input{font-family:'Noto Sans JP',sans-serif;font-size:14px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+  .manual-entry-form select{min-width:140px}
+  .manual-entry-form input[type="date"]{width:140px}
+  .manual-entry-form input[type="time"]{width:110px}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(4px)}
+  .overlay.active{display:flex}
+  .pin-box{background:var(--surface);border-radius:16px;padding:32px;text-align:center;width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .pin-box h3{font-size:18px;margin-bottom:8px}
+  .pin-box .pin-sub{font-size:13px;color:var(--text-light);margin-bottom:20px;min-height:18px}
+  .pin-dots{display:flex;justify-content:center;gap:12px;margin-bottom:24px}
+  .pin-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--border);transition:all .15s}
+  .pin-dot.filled{background:var(--primary);border-color:var(--primary)}
+  .pin-dot.error{background:var(--danger);border-color:var(--danger);animation:shake .3s}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:240px;margin:0 auto}
+  .pin-key{padding:16px;font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .1s;-webkit-tap-highlight-color:transparent}
+  .pin-key:active{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .pin-key.fn{font-size:14px;font-family:'Noto Sans JP',sans-serif;color:var(--text-light)}
+  .pin-cancel{margin-top:16px;background:none;border:none;color:var(--text-light);font-size:14px;cursor:pointer;font-family:'Noto Sans JP',sans-serif;padding:8px 16px}
+  .stamp-result{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:200;background:rgba(22,163,74,.92);flex-direction:column;gap:12px;opacity:0;transition:opacity .3s}
+  .stamp-result.active{display:flex;opacity:1}
+  .stamp-result.out-mode{background:rgba(37,99,235,.92)}
+  .stamp-result .sr-name{font-size:36px;font-weight:900;color:#fff}
+  .stamp-result .sr-action{font-size:48px;font-weight:900;color:#fff}
+  .stamp-result .sr-time{font-family:'JetBrains Mono',monospace;font-size:56px;font-weight:700;color:rgba(255,255,255,.9)}
+  .demo-select-wrap{padding:0 24px}
+  .demo-select-wrap select{width:100%;font-family:'Noto Sans JP',sans-serif;font-size:18px;padding:12px 16px;border:2px solid var(--primary);border-radius:10px;background:var(--surface);color:var(--text);font-weight:700;text-align:center}
+  .gas-config{background:var(--surface);border-radius:8px;box-shadow:var(--shadow);padding:16px;margin-top:16px}
+  .gas-config summary{font-weight:700;font-size:14px;color:var(--secondary);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}
+  .gas-config summary::-webkit-details-marker{display:none}
+  .gas-config summary::before{content:'⚙'}
+  .gas-config-inner{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+  .gas-config-inner input{font-family:'JetBrains Mono',monospace;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;width:100%}
+  .gas-status{font-size:12px;padding:4px 0}.gas-status.ok{color:var(--success)}.gas-status.ng{color:var(--danger)}
+</style>
+</head>
+<body>
+
+<!-- ══════ Main ══════ -->
+<div id="screenMain" class="screen active">
+  <div class="header">
+    <div class="header-logo">⏱ タイムカード</div>
+    <div class="header-nav">
+      <button onclick="requirePin('records')">記録表示</button>
+      <button onclick="requirePin('members')">利用者管理</button>
+    </div>
+  </div>
+  <div class="connect-bar" id="connectBar">
+    <span class="connect-indicator" id="connectIndicator"></span>
+    <span class="connect-label" id="connectLabel">カードリーダー未接続</span>
+    <button class="connect-btn connect" id="connectBtn" onclick="connectPasori()">リーダー接続</button>
+  </div>
+  <div id="demoSelector" class="demo-select-wrap" style="display:none;">
+    <select id="demoMemberSelect"><option value="">— 利用者を選択（デモ用）—</option></select>
+  </div>
+  <div class="clock-area">
+    <div class="date-display" id="dateDisplay"></div>
+    <div class="analog-clock" id="analogClock">
+      <div class="clock-center"></div>
+      <div class="clock-hand hand-hour" id="handHour"></div>
+      <div class="clock-hand hand-minute" id="handMinute"></div>
+      <div class="clock-hand hand-second" id="handSecond"></div>
+    </div>
+    <div class="time-display" id="timeDisplay"></div>
+  </div>
+  <div class="status-bar" id="statusBar">ICカードをリーダーにかざしてください</div>
+  <div class="stamp-buttons">
+    <button class="stamp-btn selected" id="btnIn" onclick="handleStampBtn('in')">通所</button>
+    <button class="stamp-btn" id="btnOut" onclick="handleStampBtn('out')">帰宅</button>
+  </div>
+</div>
+
+<!-- ══════ Records ══════ -->
+<div id="screenRecords" class="screen">
+  <div class="header">
+    <div class="header-logo">📋 記録表示</div>
+    <div class="header-nav"><button onclick="showScreen('main')">戻る</button></div>
+  </div>
+  <div class="records-container">
+    <div class="records-date-filter">
+      <div class="form-group"><label>開始日</label><input type="date" id="filterFrom"></div>
+      <div class="form-group"><label>終了日</label><input type="date" id="filterTo"></div>
+      <button class="action-btn primary" onclick="renderRecords()">表示</button>
+    </div>
+    <div id="recordsBody"></div>
+    <details class="manual-entry">
+      <summary>ICカード忘れ — 手動で記録を追加</summary>
+      <div class="manual-entry-form">
+        <div class="form-group"><label>利用者</label><select id="manualMember"></select></div>
+        <div class="form-group"><label>日付</label><input type="date" id="manualDate"></div>
+        <div class="form-group"><label>通所時間</label><input type="time" step="1" id="manualIn"></div>
+        <div class="form-group"><label>帰宅時間</label><input type="time" step="1" id="manualOut"></div>
+        <button class="action-btn primary" onclick="addManualRecord()">追加</button>
+      </div>
+    </details>
+  </div>
+  <div class="save-bar">
+    <button class="action-btn success" id="btnSaveRecords" onclick="saveEditedRecords()" disabled>変更を保存</button>
+    <button class="action-btn secondary" onclick="exportCSV()">CSV出力</button>
+  </div>
+</div>
+
+<!-- ══════ Members ══════ -->
+<div id="screenMembers" class="screen">
+  <div class="header">
+    <div class="header-logo">👥 利用者管理</div>
+    <div class="header-nav"><button onclick="showScreen('main')">戻る</button></div>
+  </div>
+  <div class="members-container">
+    <div class="member-form">
+      <div class="form-group"><label>利用者ID</label><input type="text" id="memberUserIdInput" placeholder="例: 001" style="width:80px;"></div>
+      <div class="form-group"><label>名前</label><input type="text" id="memberNameInput" placeholder="山田太郎"></div>
+      <div class="form-group"><label>カードID（NFC）</label><input type="text" id="memberCardIdInput" placeholder="カード読取で自動入力"></div>
+      <button class="action-btn primary" onclick="scanForRegister()">カード読取</button>
+      <button class="action-btn success" onclick="addMember()">登録</button>
+    </div>
+    <div class="member-list" id="memberList"></div>
+    <details class="gas-config">
+      <summary>スプレッドシート連携設定</summary>
+      <div class="gas-config-inner">
+        <label style="font-size:12px;color:var(--text-light);">GAS WebアプリURL</label>
+        <input type="text" id="gasUrlInput" placeholder="https://script.google.com/macros/s/xxxxx/exec">
+        <div style="display:flex;gap:8px;">
+          <button class="action-btn primary" onclick="saveGasUrl()">保存</button>
+          <button class="action-btn secondary" onclick="testGas()">接続テスト</button>
+        </div>
+        <div class="gas-status" id="gasStatus"></div>
+      </div>
+    </details>
+    <div style="text-align:center;margin-top:24px;">
+      <span class="settings-link" onclick="showPinChange()">管理パスワードを変更</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ PIN ══════ -->
+<div class="overlay" id="pinOverlay">
+  <div class="pin-box">
+    <h3 id="pinTitle">管理パスワード</h3>
+    <div class="pin-sub" id="pinSub">4桁の数字を入力してください</div>
+    <div class="pin-dots" id="pinDots"><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div></div>
+    <div class="pin-pad" id="pinPad">
+      <button class="pin-key" data-v="1">1</button><button class="pin-key" data-v="2">2</button><button class="pin-key" data-v="3">3</button>
+      <button class="pin-key" data-v="4">4</button><button class="pin-key" data-v="5">5</button><button class="pin-key" data-v="6">6</button>
+      <button class="pin-key" data-v="7">7</button><button class="pin-key" data-v="8">8</button><button class="pin-key" data-v="9">9</button>
+      <button class="pin-key fn" data-v="clear">C</button><button class="pin-key" data-v="0">0</button><button class="pin-key fn" data-v="back">←</button>
+    </div>
+    <button class="pin-cancel" onclick="cancelPin()">キャンセル</button>
+  </div>
+</div>
+
+<!-- ══════ Stamp Result ══════ -->
+<div class="stamp-result" id="stampResult">
+  <div class="sr-name" id="srName"></div>
+  <div class="sr-action" id="srAction"></div>
+  <div class="sr-time" id="srTime"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+//  Storage
+// ═══════════════════════════════════════
+function getMembers(){return JSON.parse(localStorage.getItem('tc_members')||'[]')}
+function saveMembers(m){localStorage.setItem('tc_members',JSON.stringify(m))}
+function getRecords(){return JSON.parse(localStorage.getItem('tc_records')||'[]')}
+function saveRecords(r){localStorage.setItem('tc_records',JSON.stringify(r))}
+function getPin(){return localStorage.getItem('tc_admin_pin')||'0000'}
+function setPin(p){localStorage.setItem('tc_admin_pin',p)}
+function getGasUrl(){return localStorage.getItem('tc_gas_url')||''}
+function setGasUrl(u){localStorage.setItem('tc_gas_url',u)}
+
+// ═══════════════════════════════════════
+//  WebUSB — PaSoRi RC-S380
+// ═══════════════════════════════════════
+let usbDevice = null;
+let pollingActive = false;
+let scanMode = 'stamp'; // 'stamp' | 'register'
+let lastIdm = '';
+let lastIdmTime = 0;
+
+async function connectPasori() {
+  try {
+    usbDevice = await navigator.usb.requestDevice({
+      filters: [{ vendorId: 0x054c }] // Sony
+    });
+    await usbDevice.open();
+    await usbDevice.selectConfiguration(1);
+    await usbDevice.claimInterface(0);
+    await initRC_S380();
+    updateConnectUI(true);
+    startPollingLoop();
+  } catch (e) {
+    console.error('PaSoRi connect error:', e);
+    updateConnectUI(false);
+    // Fallback to demo mode
+    document.getElementById('demoSelector').style.display = 'block';
+    refreshDemoDropdown();
+    updateStatus('カードリーダー接続失敗 — デモモードで動作します', 'error');
+  }
+}
+
+function updateConnectUI(connected) {
+  const ind = document.getElementById('connectIndicator');
+  const lbl = document.getElementById('connectLabel');
+  const btn = document.getElementById('connectBtn');
+  if (connected) {
+    ind.className = 'connect-indicator polling';
+    lbl.textContent = '接続中 — カード待機中';
+    btn.textContent = '切断';
+    btn.className = 'connect-btn disconnect';
+    btn.onclick = disconnectPasori;
+  } else {
+    ind.className = 'connect-indicator';
+    lbl.textContent = 'カードリーダー未接続';
+    btn.textContent = 'リーダー接続';
+    btn.className = 'connect-btn connect';
+    btn.onclick = connectPasori;
+  }
+}
+
+async function disconnectPasori() {
+  pollingActive = false;
+  if (usbDevice) {
+    try { await usbDevice.close(); } catch(e) {}
+    usbDevice = null;
+  }
+  updateConnectUI(false);
+}
+
+// RC-S380 low-level communication
+async function sendUSB(data) {
+  const buf = new Uint8Array(data);
+  await usbDevice.transferOut(2, buf);
+}
+
+async function recvUSB(len) {
+  const res = await usbDevice.transferIn(1, len);
+  return new Uint8Array(res.data.buffer);
+}
+
+async function sendCmd(data) {
+  // Build RC-S380 packet: preamble + len + data + checksum + postamble
+  const len = data.length;
+  let packet;
+  if (len <= 255) {
+    const lcs = (256 - len) & 0xFF;
+    const dcs = (256 - data.reduce((a,b) => a+b, 0)) & 0xFF;
+    packet = [0x00, 0x00, 0xFF, len, lcs, ...data, dcs, 0x00];
+  } else {
+    const lenB = [(len >> 8) & 0xFF, len & 0xFF];
+    const lcs = (256 - lenB.reduce((a,b) => a+b, 0)) & 0xFF;
+    const dcs = (256 - data.reduce((a,b) => a+b, 0)) & 0xFF;
+    packet = [0x00, 0x00, 0xFF, 0xFF, 0xFF, ...lenB, lcs, ...data, dcs, 0x00];
+  }
+  await sendUSB(packet);
+}
+
+async function recvResponse(maxLen) {
+  // ACK
+  await recvUSB(6);
+  // Response
+  const res = await recvUSB(maxLen);
+  return res;
+}
+
+async function initRC_S380() {
+  // ACK
+  await sendUSB([0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00]);
+  // SetCommandType 01
+  await sendCmd([0xD6, 0x2A, 0x01]);
+  await recvResponse(13);
+  // GetFirmwareVersion
+  await sendCmd([0xD6, 0x20]);
+  await recvResponse(19);
+  // GetPDDataVersion
+  await sendCmd([0xD6, 0x22]);
+  await recvResponse(19);
+  // SwitchRF off
+  await sendCmd([0xD6, 0x06, 0x00]);
+  await recvResponse(13);
+  // SwitchRF on (FeliCa)
+  await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
+  await recvResponse(13);
+  // InSetProtocol - timing parameters
+  await sendCmd([0xD6, 0x02, 0x00, 0x18,
+    0x01, 0x01, 0x02, 0x01, 0x03, 0x00, 0x04, 0x00,
+    0x05, 0x00, 0x06, 0x00, 0x07, 0x08, 0x08, 0x00,
+    0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C, 0x00,
+    0x0E, 0x04, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00,
+    0x12, 0x00, 0x13, 0x06]);
+  await recvResponse(13);
+  // InSetProtocol part 2
+  await sendCmd([0xD6, 0x02, 0x00, 0x18]);
+  await recvResponse(13);
+  // InSetProtocol part 3 - initial guard time
+  await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
+  await recvResponse(13);
+}
+
+async function pollFeliCa() {
+  // InCommRF: Polling command for FeliCa
+  // System code FFFF = wildcard, time slot = 00
+  try {
+    // SwitchRF off then on to reset
+    await sendCmd([0xD6, 0x06, 0x00]);
+    await recvResponse(13);
+    await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
+    await recvResponse(13);
+    // InSetProtocol for timing
+    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
+    await recvResponse(13);
+    // InCommRF with Polling
+    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
+    const res = await recvResponse(64);
+    // Check if card found - response contains IDm at specific offset
+    // Typical successful response has length > 20
+    if (res.length > 20 && res[5] === 0xD7 && res[6] === 0x05 && res[7] === 0x00) {
+      // No card
+      return null;
+    }
+    if (res.length >= 25) {
+      // IDm is 8 bytes starting from offset 17 in typical response
+      const idmBytes = res.slice(17, 25);
+      const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+      if (idm && idm !== '0000000000000000' && idm.length === 16) {
+        return idm;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.error('Poll error:', e);
+    return null;
+  }
+}
+
+// Simplified reliable polling using the proven saturday06 approach
+async function pollFeliCaSimple() {
+  try {
+    // ACK
+    await sendUSB([0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00]);
+    // SetCommandType 01
+    await sendCmd([0xD6, 0x2A, 0x01]);
+    await recvResponse(13);
+    // SwitchRF off
+    await sendCmd([0xD6, 0x06, 0x00]);
+    await recvResponse(13);
+    // SwitchRF on
+    await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
+    await recvResponse(13);
+    // InSetProtocol
+    await sendCmd([0xD6, 0x02, 0x00, 0x18,
+      0x01, 0x01, 0x02, 0x01, 0x03, 0x00, 0x04, 0x00,
+      0x05, 0x00, 0x06, 0x00, 0x07, 0x08, 0x08, 0x00,
+      0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C, 0x00,
+      0x0E, 0x04, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00,
+      0x12, 0x00, 0x13, 0x06]);
+    await recvResponse(13);
+    // InSetProtocol 2
+    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
+    const res = await recvResponse(64);
+
+    // Parse response for IDm
+    // In RC-S380 InCommRF response, data starts after header
+    // Response format: preamble(3) + len(2-3) + LCS(1) + D7(1) + code(1) + status(1) + ... + IDm
+    // Look for Polling response (06 01 + IDm 8 bytes + PMm 8 bytes)
+    for (let i = 0; i < res.length - 10; i++) {
+      // FeliCa Polling response starts with length byte, then 01 (response code)
+      if (res[i] === 0x01 && i > 0) {
+        // Could be the FeliCa response code for Polling
+        const idmBytes = res.slice(i + 1, i + 9);
+        const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+        if (idm !== '0000000000000000' && idm.length === 16) {
+          return idm;
+        }
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function startPollingLoop() {
+  pollingActive = true;
+  while (pollingActive && usbDevice) {
+    try {
+      // Use simplified approach
+      const idm = await pollFeliCaSimple();
+      if (idm) {
+        const now = Date.now();
+        // Debounce: ignore same card within 3 seconds
+        if (idm !== lastIdm || (now - lastIdmTime) > 3000) {
+          lastIdm = idm;
+          lastIdmTime = now;
+          handleCardTap(idm);
+        }
+      }
+    } catch (e) {
+      console.error('Polling loop error:', e);
+      // Try to recover
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    // Wait between polls
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+function handleCardTap(cardId) {
+  if (scanMode === 'register') {
+    document.getElementById('memberCardIdInput').value = cardId;
+    scanMode = 'stamp';
+    showStampResult('', 'カードID読み取り完了', cardId, 'in');
+    return;
+  }
+  const member = getMembers().find(m => m.cardId === cardId);
+  if (!member) {
+    playChime('out');
+    showStampResult('', '未登録のカードです', 'ID: ' + cardId, 'out');
+    updateStatus('未登録カード: ' + cardId, 'error');
+    return;
+  }
+  stamp(member);
+}
+
+// ═══════════════════════════════════════
+//  Sound
+// ═══════════════════════════════════════
+let audioCtx = null;
+function playChime(type) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    if (type === 'in') { o.frequency.value = 880; o.type = 'sine'; g.gain.value = 0.3; o.start(); o.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.15); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4); o.stop(audioCtx.currentTime + 0.4); }
+    else { o.frequency.value = 660; o.type = 'sine'; g.gain.value = 0.3; o.start(); o.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.2); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5); o.stop(audioCtx.currentTime + 0.5); }
+  } catch (e) {}
+}
+
+function showStampResult(name, action, time, mode) {
+  const el = document.getElementById('stampResult');
+  document.getElementById('srName').textContent = name ? name + 'さん' : '';
+  document.getElementById('srAction').textContent = action;
+  document.getElementById('srTime').textContent = time;
+  el.className = 'stamp-result' + (mode === 'out' ? ' out-mode' : '');
+  el.classList.add('active');
+  setTimeout(() => el.classList.remove('active'), 3000);
+}
+
+// ═══════════════════════════════════════
+//  Stamp
+// ═══════════════════════════════════════
+let currentMode = 'in';
+function selectMode(mode) {
+  currentMode = mode;
+  document.getElementById('btnIn').classList.toggle('selected', mode === 'in');
+  document.getElementById('btnOut').classList.toggle('selected', mode === 'out');
+  updateStatus(`「${mode === 'in' ? '通所' : '帰宅'}」を選択中`);
+}
+function updateStatus(msg, type) {
+  const bar = document.getElementById('statusBar');
+  bar.className = 'status-bar' + (type ? ` ${type}` : '');
+  bar.textContent = msg;
+}
+function handleStampBtn(mode) {
+  selectMode(mode);
+  // Demo mode fallback
+  if (!usbDevice) {
+    const sel = document.getElementById('demoMemberSelect');
+    if (sel && sel.style.display !== 'none') {
+      const cid = sel.value;
+      if (!cid) { updateStatus('利用者を選択してからボタンを押してください', 'error'); return; }
+      const member = getMembers().find(m => m.cardId === cid);
+      if (member) stamp(member);
+    }
+  }
+}
+
+function stamp(member) {
+  const now = new Date(), dateStr = formatDate(now), timeStr = formatTime(now), records = getRecords();
+  let rec = records.find(r => r.cardId === member.cardId && r.date === dateStr);
+  if (!rec) { rec = { userId: member.userId, cardId: member.cardId, name: member.name, date: dateStr, inTime: '', outTime: '' }; records.push(rec); }
+  const action = currentMode === 'in' ? '通所' : '帰宅';
+  if (currentMode === 'in') { rec.inTime = timeStr; } else { rec.outTime = timeStr; }
+  saveRecords(records);
+  playChime(currentMode);
+  showStampResult(member.name, action + 'しました', timeStr, currentMode);
+  updateStatus(member.name + ' — ' + action + ' ' + timeStr, 'success');
+  if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+  sendToGas(rec);
+  setTimeout(() => updateStatus(`「${currentMode === 'in' ? '通所' : '帰宅'}」を選択中`), 4000);
+}
+
+// ═══════════════════════════════════════
+//  Demo fallback
+// ═══════════════════════════════════════
+function refreshDemoDropdown() {
+  const sel = document.getElementById('demoMemberSelect');
+  const members = getMembers();
+  sel.innerHTML = '<option value="">— 利用者を選択（デモ用）—</option>' + members.map(m => `<option value="${esc(m.cardId)}">${esc(m.name)}</option>`).join('');
+}
+
+// ═══════════════════════════════════════
+//  PIN
+// ═══════════════════════════════════════
+let pinBuffer = '', pinCallback = null, pinMode = 'auth', pinNewFirst = '';
+function requirePin(ts) { pinMode = 'auth'; pinBuffer = ''; pinCallback = (ok) => { if (ok) showScreen(ts) }; document.getElementById('pinTitle').textContent = '管理パスワード'; document.getElementById('pinSub').textContent = '4桁の数字を入力してください'; renderPinDots(); document.getElementById('pinOverlay').classList.add('active') }
+function showPinChange() { pinMode = 'setNew'; pinBuffer = ''; pinNewFirst = ''; pinCallback = null; document.getElementById('pinTitle').textContent = 'パスワード変更'; document.getElementById('pinSub').textContent = '新しい4桁パスワードを入力'; renderPinDots(); document.getElementById('pinOverlay').classList.add('active') }
+function cancelPin() { document.getElementById('pinOverlay').classList.remove('active'); pinBuffer = ''; pinCallback = null }
+function renderPinDots(err) { document.querySelectorAll('#pinDots .pin-dot').forEach((d, i) => { d.classList.toggle('filled', i < pinBuffer.length); d.classList.toggle('error', !!err) }) }
+document.getElementById('pinPad').addEventListener('click', (e) => { const k = e.target.closest('.pin-key'); if (!k) return; const v = k.dataset.v; if (v === 'clear') { pinBuffer = ''; renderPinDots(); return } if (v === 'back') { pinBuffer = pinBuffer.slice(0, -1); renderPinDots(); return } if (pinBuffer.length >= 4) return; pinBuffer += v; renderPinDots(); if (pinBuffer.length === 4) setTimeout(handlePinComplete, 150) });
+function handlePinComplete() {
+  if (pinMode === 'auth') { if (pinBuffer === getPin()) { document.getElementById('pinOverlay').classList.remove('active'); if (pinCallback) pinCallback(true); pinBuffer = '' } else { renderPinDots(true); setTimeout(() => { pinBuffer = ''; renderPinDots(); document.getElementById('pinSub').textContent = 'パスワードが違います' }, 400) } }
+  else if (pinMode === 'setNew') { pinNewFirst = pinBuffer; pinBuffer = ''; pinMode = 'confirmNew'; document.getElementById('pinSub').textContent = '確認のためもう一度入力'; renderPinDots() }
+  else if (pinMode === 'confirmNew') { if (pinBuffer === pinNewFirst) { setPin(pinBuffer); document.getElementById('pinOverlay').classList.remove('active'); showStampResult('', 'パスワードを変更しました', '', 'in'); pinBuffer = '' } else { renderPinDots(true); setTimeout(() => { pinBuffer = ''; pinMode = 'setNew'; pinNewFirst = ''; document.getElementById('pinSub').textContent = '一致しません。最初からやり直してください'; renderPinDots() }, 400) } }
+}
+
+// ═══════════════════════════════════════
+//  Clock
+// ═══════════════════════════════════════
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function updateClock() { const now = new Date(); document.getElementById('dateDisplay').textContent = `${now.getFullYear()} / ${String(now.getMonth() + 1).padStart(2, '0')} / ${String(now.getDate()).padStart(2, '0')} ${DAYS[now.getDay()]}`; document.getElementById('timeDisplay').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`; const s = now.getSeconds() * 6, m = now.getMinutes() * 6 + now.getSeconds() * 0.1, h = (now.getHours() % 12) * 30 + now.getMinutes() * 0.5; document.getElementById('handSecond').style.transform = `translateX(-50%) rotate(${s}deg)`; document.getElementById('handMinute').style.transform = `translateX(-50%) rotate(${m}deg)`; document.getElementById('handHour').style.transform = `translateX(-50%) rotate(${h}deg)` }
+function initClockMarks() { const c = document.getElementById('analogClock');[{ n: 12, s: { top: '6px', left: '50%', transform: 'translateX(-50%)' } }, { n: 3, s: { top: '50%', right: '6px', transform: 'translateY(-50%)' } }, { n: 6, s: { bottom: '4px', left: '50%', transform: 'translateX(-50%)' } }, { n: 9, s: { top: '50%', left: '8px', transform: 'translateY(-50%)' } }].forEach(({ n, s }) => { const el = document.createElement('div'); el.className = 'clock-mark'; el.textContent = n; Object.assign(el.style, s); c.appendChild(el) }) }
+
+// ═══════════════════════════════════════
+//  Members
+// ═══════════════════════════════════════
+function scanForRegister() {
+  if (!usbDevice) {
+    // Generate random ID for demo
+    document.getElementById('memberCardIdInput').value = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('').toUpperCase();
+    return;
+  }
+  scanMode = 'register';
+  showStampResult('', '登録用：カードをかざしてください', '', 'in');
+}
+function addMember() {
+  const uid = document.getElementById('memberUserIdInput').value.trim();
+  const name = document.getElementById('memberNameInput').value.trim();
+  const cid = document.getElementById('memberCardIdInput').value.trim();
+  if (!uid || !name) { alert('利用者IDと名前は必須です'); return }
+  const members = getMembers();
+  if (members.find(m => m.userId === uid)) { alert('この利用者IDは既に登録されています'); return }
+  if (cid && members.find(m => m.cardId === cid)) { alert('このカードIDは既に登録されています'); return }
+  members.push({ userId: uid, name, cardId: cid || ('MANUAL_' + uid) });
+  saveMembers(members);
+  document.getElementById('memberUserIdInput').value = '';
+  document.getElementById('memberNameInput').value = '';
+  document.getElementById('memberCardIdInput').value = '';
+  renderMembers();
+}
+function deleteMember(uid) { if (!confirm('この利用者を削除しますか？')) return; saveMembers(getMembers().filter(m => m.userId !== uid)); renderMembers() }
+function renderMembers() {
+  const members = getMembers(), list = document.getElementById('memberList');
+  if (!members.length) { list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-light);">利用者が登録されていません</div>'; return }
+  list.innerHTML = members.map(m => `<div class="member-item"><div class="member-info"><div class="member-name">${esc(m.name)}</div><div class="member-id">ID: ${esc(m.userId)}　カード: ${esc(m.cardId)}</div></div><button class="delete-btn" onclick="deleteMember('${esc(m.userId)}')">削除</button></div>`).join('');
+}
+
+// ═══════════════════════════════════════
+//  Records
+// ═══════════════════════════════════════
+let editedRecords = {};
+function renderRecords() {
+  const from = document.getElementById('filterFrom').value, to = document.getElementById('filterTo').value;
+  let records = getRecords();
+  if (from) records = records.filter(r => r.date >= from);
+  if (to) records = records.filter(r => r.date <= to);
+  records.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+  editedRecords = {}; document.getElementById('btnSaveRecords').disabled = true;
+  const body = document.getElementById('recordsBody');
+  if (!records.length) { body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-light);">記録がありません</div>'; return }
+  body.innerHTML = `<table class="records-table"><thead><tr><th>日付</th><th>利用者ID</th><th>名前</th><th>通所時間</th><th>帰宅時間</th></tr></thead><tbody>${records.map(r => {
+    const key = r.cardId + '|' + r.date;
+    return `<tr><td>${esc(r.date)}</td><td>${esc(r.userId || '')}</td><td class="name-cell">${esc(r.name)}</td><td><input type="time" step="1" class="time-input" data-key="${esc(key)}" data-field="inTime" value="${r.inTime || ''}" onchange="markEdited(this)"></td><td><input type="time" step="1" class="time-input" data-key="${esc(key)}" data-field="outTime" value="${r.outTime || ''}" onchange="markEdited(this)"></td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+function markEdited(input) { const k = input.dataset.key, f = input.dataset.field; if (!editedRecords[k]) editedRecords[k] = {}; editedRecords[k][f] = input.value; input.classList.add('changed'); document.getElementById('btnSaveRecords').disabled = false }
+function saveEditedRecords() {
+  const records = getRecords(); let count = 0;
+  for (const [key, changes] of Object.entries(editedRecords)) { const [cid, date] = key.split('|'); const rec = records.find(r => r.cardId === cid && r.date === date); if (rec) { if ('inTime' in changes) rec.inTime = changes.inTime; if ('outTime' in changes) rec.outTime = changes.outTime; count++ } }
+  saveRecords(records); editedRecords = {}; document.getElementById('btnSaveRecords').disabled = true;
+  document.querySelectorAll('.time-input.changed').forEach(el => el.classList.remove('changed'));
+  showStampResult('', count + '件の記録を更新', '', 'in');
+}
+
+// ═══════════════════════════════════════
+//  CSV
+// ═══════════════════════════════════════
+function exportCSV() {
+  const from = document.getElementById('filterFrom').value, to = document.getElementById('filterTo').value;
+  let records = getRecords();
+  if (from) records = records.filter(r => r.date >= from); if (to) records = records.filter(r => r.date <= to);
+  records.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  const BOM = '\uFEFF', header = '利用者ID,名前,日付,通所時間,帰宅時間\n';
+  const rows = records.map(r => `${r.userId || ''},${r.name},${r.date},${r.inTime || ''},${r.outTime || ''}`).join('\n');
+  const blob = new Blob([BOM + header + rows], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `タイムカード_${from || 'all'}_${to || formatDate(new Date())}.csv`; a.click();
+}
+
+// ═══════════════════════════════════════
+//  Manual Record
+// ═══════════════════════════════════════
+function populateManualDropdown() {
+  const sel = document.getElementById('manualMember'), members = getMembers();
+  sel.innerHTML = '<option value="">-- 選択 --</option>' + members.map(m => `<option value="${esc(m.cardId)}" data-uid="${esc(m.userId)}" data-name="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  document.getElementById('manualDate').value = formatDate(new Date());
+  document.getElementById('manualIn').value = ''; document.getElementById('manualOut').value = '';
+}
+function addManualRecord() {
+  const sel = document.getElementById('manualMember'), cid = sel.value;
+  const opt = sel.selectedOptions[0];
+  const name = opt?.dataset?.name || '', uid = opt?.dataset?.uid || '';
+  const date = document.getElementById('manualDate').value;
+  const inTime = document.getElementById('manualIn').value || '';
+  const outTime = document.getElementById('manualOut').value || '';
+  if (!cid) { alert('利用者を選択してください'); return }
+  if (!date) { alert('日付を入力してください'); return }
+  if (!inTime && !outTime) { alert('通所時間または帰宅時間を入力してください'); return }
+  const records = getRecords();
+  let rec = records.find(r => r.cardId === cid && r.date === date);
+  if (rec) { if (inTime) rec.inTime = inTime; if (outTime) rec.outTime = outTime }
+  else { records.push({ userId: uid, cardId: cid, name, date, inTime, outTime }) }
+  saveRecords(records);
+  showStampResult(name, '手動記録を追加', '', 'in');
+  document.getElementById('manualIn').value = ''; document.getElementById('manualOut').value = '';
+  renderRecords();
+}
+
+// ═══════════════════════════════════════
+//  GAS
+// ═══════════════════════════════════════
+function saveGasUrl() { const url = document.getElementById('gasUrlInput').value.trim(); setGasUrl(url); const st = document.getElementById('gasStatus'); st.textContent = url ? '✓ URL保存済み' : 'URL未設定'; st.className = 'gas-status' + (url ? ' ok' : ' ng') }
+function testGas() { const url = getGasUrl(); if (!url) { document.getElementById('gasStatus').textContent = 'URLが未設定です'; document.getElementById('gasStatus').className = 'gas-status ng'; return } const st = document.getElementById('gasStatus'); st.textContent = '接続テスト中...'; st.className = 'gas-status'; fetch(url + '?action=test', { mode: 'no-cors' }).then(() => { st.textContent = '✓ リクエスト送信成功'; st.className = 'gas-status ok' }).catch(e => { st.textContent = '✗ 接続失敗: ' + e.message; st.className = 'gas-status ng' }) }
+function sendToGas(rec) { const url = getGasUrl(); if (!url) return; try { fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rec) }) } catch (e) {} }
+
+// ═══════════════════════════════════════
+//  Nav
+// ═══════════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  if (name === 'main' && !usbDevice) refreshDemoDropdown();
+  if (name === 'records') { const now = new Date(); document.getElementById('filterFrom').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`; document.getElementById('filterTo').value = formatDate(now); populateManualDropdown(); renderRecords() }
+  if (name === 'members') { renderMembers(); document.getElementById('gasUrlInput').value = getGasUrl() }
+}
+
+// ═══════════════════════════════════════
+//  Utils
+// ═══════════════════════════════════════
+function formatDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+function formatTime(d) { return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}` }
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
+
+// ═══════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════
+initClockMarks(); updateClock(); setInterval(updateClock, 1000); selectMode('in');
+// Show demo selector by default (user can connect PaSoRi via button)
+if (!('usb' in navigator)) {
+  document.getElementById('connectBtn').disabled = true;
+  document.getElementById('connectLabel').textContent = 'WebUSB非対応ブラウザ';
+  document.getElementById('demoSelector').style.display = 'block';
+  refreshDemoDropdown();
+}
+</script>
+</body>
+</html>
