@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="ja">
-<script src="https://cdn.jsdelivr.net/npm/eruda"></script><script>eruda.init();</script>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -254,31 +253,65 @@ function setGasUrl(u){localStorage.setItem('tc_gas_url',u)}
 
 // ═══════════════════════════════════════
 //  WebUSB — PaSoRi RC-S380
+//  Based on saturday06/webusb-felica
 // ═══════════════════════════════════════
 let usbDevice = null;
 let pollingActive = false;
-let scanMode = 'stamp'; // 'stamp' | 'register'
+let scanMode = 'stamp';
 let lastIdm = '';
 let lastIdmTime = 0;
+const LOG = (...args) => console.log('[PaSoRi]', ...args);
+const ERR = (...args) => console.error('[PaSoRi]', ...args);
+const HEX = (arr) => Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join(' ');
+
+// --- Auto-reconnect on page load ---
+async function autoReconnect() {
+  if (!('usb' in navigator)) return;
+  try {
+    const devices = await navigator.usb.getDevices();
+    const pasori = devices.find(d => d.vendorId === 0x054c);
+    if (pasori) {
+      LOG('Found paired device, auto-reconnecting...');
+      usbDevice = pasori;
+      await openAndInit();
+    }
+  } catch(e) { ERR('Auto-reconnect failed:', e.name, e.message); }
+}
 
 async function connectPasori() {
   try {
     usbDevice = await navigator.usb.requestDevice({
-      filters: [{ vendorId: 0x054c }] // Sony
+      filters: [{ vendorId: 0x054c }]
     });
-    await usbDevice.open();
-    await usbDevice.selectConfiguration(1);
-    await usbDevice.claimInterface(0);
-    await initRC_S380();
-    updateConnectUI(true);
-    startPollingLoop();
+    await openAndInit();
   } catch (e) {
-    console.error('PaSoRi connect error:', e.name, e.message, e);
+    ERR('Connect error:', e.name, e.message);
     updateConnectUI(false);
-    // Fallback to demo mode
     document.getElementById('demoSelector').style.display = 'block';
     refreshDemoDropdown();
-    updateStatus('カードリーダー接続失敗 — デモモードで動作します', 'error');
+    updateStatus('接続失敗: ' + e.message, 'error');
+  }
+}
+
+async function openAndInit() {
+  try {
+    LOG('Opening device...', usbDevice.productName);
+    if (!usbDevice.opened) await usbDevice.open();
+    LOG('Selecting configuration...');
+    if (usbDevice.configuration === null) await usbDevice.selectConfiguration(1);
+    LOG('Claiming interface...');
+    await usbDevice.claimInterface(0);
+    LOG('Interface claimed. Initializing RC-S380...');
+    await initRC_S380();
+    LOG('Init complete. Starting polling...');
+    updateConnectUI(true);
+    startPollingLoop();
+  } catch(e) {
+    ERR('Open/init error:', e.name, e.message);
+    updateConnectUI(false);
+    document.getElementById('demoSelector').style.display = 'block';
+    refreshDemoDropdown();
+    updateStatus('初期化失敗: ' + e.message, 'error');
   }
 }
 
@@ -303,175 +336,137 @@ function updateConnectUI(connected) {
 
 async function disconnectPasori() {
   pollingActive = false;
-  if (usbDevice) {
-    try { await usbDevice.close(); } catch(e) {}
-    usbDevice = null;
-  }
+  if (usbDevice) { try { await usbDevice.close(); } catch(e) {} usbDevice = null; }
   updateConnectUI(false);
 }
 
-// RC-S380 low-level communication
-async function sendUSB(data) {
-  const buf = new Uint8Array(data);
-  await usbDevice.transferOut(2, buf);
+// --- Low-level USB I/O ---
+async function send(data) {
+  await usbDevice.transferOut(2, new Uint8Array(data));
 }
 
-async function recvUSB(len) {
+async function recv(len) {
   const res = await usbDevice.transferIn(1, len);
   return new Uint8Array(res.data.buffer);
 }
 
-async function sendCmd(data) {
-  // Build RC-S380 packet: preamble + len + data + checksum + postamble
-  const len = data.length;
-  let packet;
-  if (len <= 255) {
-    const lcs = (256 - len) & 0xFF;
-    const dcs = (256 - data.reduce((a,b) => a+b, 0)) & 0xFF;
-    packet = [0x00, 0x00, 0xFF, len, lcs, ...data, dcs, 0x00];
-  } else {
-    const lenB = [(len >> 8) & 0xFF, len & 0xFF];
-    const lcs = (256 - lenB.reduce((a,b) => a+b, 0)) & 0xFF;
-    const dcs = (256 - data.reduce((a,b) => a+b, 0)) & 0xFF;
-    packet = [0x00, 0x00, 0xFF, 0xFF, 0xFF, ...lenB, lcs, ...data, dcs, 0x00];
-  }
-  await sendUSB(packet);
-}
-
-async function recvResponse(maxLen) {
-  // ACK
-  await recvUSB(6);
-  // Response
-  const res = await recvUSB(maxLen);
-  return res;
-}
-
+// --- RC-S380 Init (faithful to saturday06/webusb-felica) ---
 async function initRC_S380() {
   // ACK
-  await sendUSB([0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00]);
+  await send([0x00, 0x00, 0xff, 0x00, 0xff, 0x00]);
+
   // SetCommandType 01
-  await sendCmd([0xD6, 0x2A, 0x01]);
-  await recvResponse(13);
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x03, 0x00, 0xfd, 0xd6, 0x2a, 0x01, 0xff, 0x00]);
+  await recv(6);
+  await recv(13);
+
   // GetFirmwareVersion
-  await sendCmd([0xD6, 0x20]);
-  await recvResponse(19);
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x02, 0x00, 0xfe, 0xd6, 0x20, 0x0a, 0x00]);
+  await recv(6);
+  await recv(19);
+
   // GetPDDataVersion
-  await sendCmd([0xD6, 0x22]);
-  await recvResponse(19);
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x02, 0x00, 0xfe, 0xd6, 0x22, 0x08, 0x00]);
+  await recv(6);
+  await recv(19);
+
   // SwitchRF off
-  await sendCmd([0xD6, 0x06, 0x00]);
-  await recvResponse(13);
-  // SwitchRF on (FeliCa)
-  await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
-  await recvResponse(13);
-  // InSetProtocol - timing parameters
-  await sendCmd([0xD6, 0x02, 0x00, 0x18,
-    0x01, 0x01, 0x02, 0x01, 0x03, 0x00, 0x04, 0x00,
-    0x05, 0x00, 0x06, 0x00, 0x07, 0x08, 0x08, 0x00,
-    0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C, 0x00,
-    0x0E, 0x04, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00,
-    0x12, 0x00, 0x13, 0x06]);
-  await recvResponse(13);
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x03, 0x00, 0xfd, 0xd6, 0x06, 0x00, 0x24, 0x00]);
+  await recv(6);
+  await recv(13);
+
+  // SwitchRF on
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x06, 0x00, 0xfa, 0xd6, 0x00, 0x02, 0x03, 0x0f, 0x03, 0x13, 0x00]);
+  await recv(6);
+  await recv(13);
+
+  // InSetProtocol 18 01 01 02 01 03 00 ...
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x28, 0x00, 0xd8,
+    0xd6, 0x02, 0x00, 0x18, 0x01, 0x01, 0x02, 0x01,
+    0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00,
+    0x07, 0x08, 0x08, 0x00, 0x09, 0x00, 0x0a, 0x00,
+    0x0b, 0x00, 0x0c, 0x00, 0x0e, 0x04, 0x0f, 0x00,
+    0x10, 0x00, 0x11, 0x00, 0x12, 0x00, 0x13, 0x06,
+    0x4b, 0x00]);
+  await recv(6);
+  await recv(13);
+
   // InSetProtocol part 2
-  await sendCmd([0xD6, 0x02, 0x00, 0x18]);
-  await recvResponse(13);
-  // InSetProtocol part 3 - initial guard time
-  await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
-  await recvResponse(13);
+  await send([0x00, 0x00, 0xff, 0xff, 0xff, 0x04, 0x00, 0xfc,
+    0xd6, 0x02, 0x00, 0x18, 0x10, 0x00]);
+  await recv(6);
+  await recv(13);
+
+  LOG('RC-S380 initialized successfully');
 }
 
-async function pollFeliCa() {
-  // InCommRF: Polling command for FeliCa
-  // System code FFFF = wildcard, time slot = 00
-  try {
-    // SwitchRF off then on to reset
-    await sendCmd([0xD6, 0x06, 0x00]);
-    await recvResponse(13);
-    await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
-    await recvResponse(13);
-    // InSetProtocol for timing
-    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
-    await recvResponse(13);
-    // InCommRF with Polling
-    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
-    const res = await recvResponse(64);
-    // Check if card found - response contains IDm at specific offset
-    // Typical successful response has length > 20
-    if (res.length > 20 && res[5] === 0xD7 && res[6] === 0x05 && res[7] === 0x00) {
-      // No card
+// --- Poll for FeliCa card (lightweight, no re-init) ---
+async function pollOnce() {
+  // InCommRF: FeliCa Polling (system code FFFF, time slot 00, request code 01)
+  // Command: D6 04 6E 00 06 00 FFFF 01 00
+  const pollCmd = [0x00, 0x00, 0xff, 0xff, 0xff, 0x0a, 0x00, 0xf6,
+    0xd6, 0x04, 0x6e, 0x00, 0x06, 0x00, 0xff, 0xff, 0x01, 0x00,
+    0xb3, 0x00];
+  await send(pollCmd);
+  await recv(6); // ACK
+  const res = await recv(64); // Response
+
+  // Log raw response for debugging
+  LOG('Poll response (' + res.length + ' bytes):', HEX(res));
+
+  // Parse: look for IDm in the response
+  // Successful polling response from RC-S380:
+  //   header... D7 05 00 00 00 08 <length> 01 <IDm 8 bytes> <PMm 8 bytes> ...
+  // The 01 is the FeliCa Polling response code
+  // IDm starts after: find byte sequence where we see 01 followed by 8 non-zero bytes
+
+  // Strategy: find D7 05 00 00 00 in response (success marker)
+  for (let i = 0; i < res.length - 3; i++) {
+    if (res[i] === 0xd7 && res[i+1] === 0x05 && res[i+2] === 0x00 && res[i+3] === 0x00 && res[i+4] === 0x00) {
+      // Status OK. Check if there's card data after status bytes
+      // Format after D7 05 00 00 00: <timeout?> <len> 01 <IDm 8> <PMm 8> <RD 2>
+      // Typically at offset i+7 or i+8 we find 01 then IDm
+      for (let j = i + 5; j < Math.min(i + 15, res.length - 9); j++) {
+        if (res[j] === 0x01) {
+          const idmBytes = res.slice(j + 1, j + 9);
+          const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+          if (idm !== '0000000000000000') {
+            LOG('IDm found:', idm);
+            return idm;
+          }
+        }
+      }
+      // D7 05 00 00 00 but no card data = no card present
       return null;
     }
-    if (res.length >= 25) {
-      // IDm is 8 bytes starting from offset 17 in typical response
-      const idmBytes = res.slice(17, 25);
-      const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-      if (idm && idm !== '0000000000000000' && idm.length === 16) {
+  }
+
+  // Alternative: just scan for response code 01 followed by plausible IDm
+  for (let i = 5; i < res.length - 9; i++) {
+    if (res[i] === 0x01 && res[i-1] >= 0x12) {
+      // res[i-1] is length byte of FeliCa response (should be 0x12 = 18 for Polling)
+      const idmBytes = res.slice(i + 1, i + 9);
+      const allZero = idmBytes.every(b => b === 0);
+      if (!allZero) {
+        const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+        LOG('IDm found (alt):', idm);
         return idm;
       }
     }
-    return null;
-  } catch (e) {
-    console.error('Poll error:', e);
-    return null;
   }
-}
 
-// Simplified reliable polling using the proven saturday06 approach
-async function pollFeliCaSimple() {
-  try {
-    // ACK
-    await sendUSB([0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00]);
-    // SetCommandType 01
-    await sendCmd([0xD6, 0x2A, 0x01]);
-    await recvResponse(13);
-    // SwitchRF off
-    await sendCmd([0xD6, 0x06, 0x00]);
-    await recvResponse(13);
-    // SwitchRF on
-    await sendCmd([0xD6, 0x00, 0x02, 0x03, 0x0F, 0x03]);
-    await recvResponse(13);
-    // InSetProtocol
-    await sendCmd([0xD6, 0x02, 0x00, 0x18,
-      0x01, 0x01, 0x02, 0x01, 0x03, 0x00, 0x04, 0x00,
-      0x05, 0x00, 0x06, 0x00, 0x07, 0x08, 0x08, 0x00,
-      0x09, 0x00, 0x0A, 0x00, 0x0B, 0x00, 0x0C, 0x00,
-      0x0E, 0x04, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00,
-      0x12, 0x00, 0x13, 0x06]);
-    await recvResponse(13);
-    // InSetProtocol 2
-    await sendCmd([0xD6, 0x04, 0x6E, 0x00, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00]);
-    const res = await recvResponse(64);
-
-    // Parse response for IDm
-    // In RC-S380 InCommRF response, data starts after header
-    // Response format: preamble(3) + len(2-3) + LCS(1) + D7(1) + code(1) + status(1) + ... + IDm
-    // Look for Polling response (06 01 + IDm 8 bytes + PMm 8 bytes)
-    for (let i = 0; i < res.length - 10; i++) {
-      // FeliCa Polling response starts with length byte, then 01 (response code)
-      if (res[i] === 0x01 && i > 0) {
-        // Could be the FeliCa response code for Polling
-        const idmBytes = res.slice(i + 1, i + 9);
-        const idm = Array.from(idmBytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-        if (idm !== '0000000000000000' && idm.length === 16) {
-          return idm;
-        }
-      }
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
+  return null;
 }
 
 async function startPollingLoop() {
   pollingActive = true;
+  let errorCount = 0;
   while (pollingActive && usbDevice) {
     try {
-      // Use simplified approach
-      const idm = await pollFeliCaSimple();
+      const idm = await pollOnce();
+      errorCount = 0; // reset on success
       if (idm) {
         const now = Date.now();
-        // Debounce: ignore same card within 3 seconds
         if (idm !== lastIdm || (now - lastIdmTime) > 3000) {
           lastIdm = idm;
           lastIdmTime = now;
@@ -479,12 +474,18 @@ async function startPollingLoop() {
         }
       }
     } catch (e) {
-      console.error('Polling loop error:', e);
-      // Try to recover
+      errorCount++;
+      ERR('Poll error #' + errorCount + ':', e.name, e.message);
+      if (errorCount >= 5) {
+        ERR('Too many errors, stopping polling');
+        pollingActive = false;
+        updateConnectUI(false);
+        updateStatus('リーダーとの通信エラー — 再接続してください', 'error');
+        break;
+      }
       await new Promise(r => setTimeout(r, 1000));
     }
-    // Wait between polls
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 300));
   }
 }
 
@@ -738,12 +739,13 @@ function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.
 //  Init
 // ═══════════════════════════════════════
 initClockMarks(); updateClock(); setInterval(updateClock, 1000); selectMode('in');
-// Show demo selector by default (user can connect PaSoRi via button)
 if (!('usb' in navigator)) {
   document.getElementById('connectBtn').disabled = true;
   document.getElementById('connectLabel').textContent = 'WebUSB非対応ブラウザ';
   document.getElementById('demoSelector').style.display = 'block';
   refreshDemoDropdown();
+} else {
+  autoReconnect();
 }
 </script>
 </body>
