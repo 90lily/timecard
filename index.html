@@ -273,7 +273,7 @@ async function connectPasori() {
     updateConnectUI(true);
     startPollingLoop();
   } catch (e) {
-    console.error('PaSoRi connect error:', e);
+    console.error('PaSoRi connect error:', e.name, e.message, e);
     updateConnectUI(false);
     // Fallback to demo mode
     document.getElementById('demoSelector').style.display = 'block';
