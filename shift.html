@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>シフト管理 — 共同生活援助</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
+:root {
+  --bg:#f1f5f9;--surface:#fff;--primary:#2563eb;--primary-h:#1d4ed8;
+  --text:#1e293b;--text-l:#64748b;--border:#e2e8f0;
+  --danger:#dc2626;--warning:#f59e0b;--success:#16a34a;
+  --shadow:0 1px 3px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.04);
+  --sw:130px;--cw:40px;--aw:52px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:'Noto Sans JP','Hiragino Sans',sans-serif;background:var(--bg);color:var(--text)}
+.screen{display:none;height:100vh;flex-direction:column}.screen.active{display:flex}
+
+/* ── Header ── */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--surface);border-bottom:1px solid var(--border);box-shadow:var(--shadow);flex-shrink:0;gap:8px;flex-wrap:wrap;z-index:10}
+.hdr-left{display:flex;align-items:center;gap:10px}
+.logo{font-weight:900;font-size:14px;color:var(--primary);white-space:nowrap}
+.month-nav{display:flex;align-items:center;gap:4px}
+.nav-btn{background:var(--surface);border:1px solid var(--border);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:background .1s}
+.nav-btn:hover{background:var(--bg)}
+.month-lbl{font-weight:700;font-size:15px;min-width:90px;text-align:center;cursor:pointer}
+.hdr-right{display:flex;gap:6px;flex-wrap:wrap}
+.btn{border:none;border-radius:7px;padding:6px 12px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-h)}
+.btn-ghost{background:var(--bg);color:var(--text);border:1px solid var(--border)}.btn-ghost:hover{background:var(--border)}
+.btn-success{background:var(--success);color:#fff}.btn-success:hover{background:#15803d}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:4px 9px;font-size:11px}
+
+/* ── Paint toolbar ── */
+.paint-bar{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;overflow-x:auto}
+.paint-lbl{font-size:11px;color:var(--text-l);font-weight:700;white-space:nowrap;flex-shrink:0}
+.pchip{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:16px;border:2px solid transparent;cursor:pointer;font-size:11px;font-weight:700;background:#f1f5f9;transition:all .1s;white-space:nowrap}
+.pchip .cdot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.pchip.active{border-color:#334155;background:var(--surface);box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.pchip.erase{color:var(--text-l)}.pchip.erase.active{border-color:var(--danger);color:var(--danger)}
+.paint-hint{font-size:11px;color:var(--text-l);margin-left:auto;white-space:nowrap}
+
+/* ── Grid ── */
+.grid-wrap{flex:1;overflow:auto;padding:8px}
+.tbl-outer{overflow:auto;border-radius:8px;box-shadow:var(--shadow);background:var(--surface)}
+.stbl{border-collapse:collapse;table-layout:fixed;font-size:12px}
+.stbl th,.stbl td{border:1px solid var(--border)}
+/* sticky staff col */
+.stbl .sc{width:var(--sw);min-width:var(--sw);position:sticky;left:0;z-index:3;background:var(--surface)}
+.stbl thead .sc{z-index:5}
+/* day col */
+.stbl .dc{width:var(--cw);min-width:var(--cw)}
+/* agg col */
+.stbl .ac{width:var(--aw);min-width:var(--aw)}
+/* sticky header row */
+.stbl thead th{background:#f8fafc;padding:0;text-align:center;position:sticky;top:0;z-index:4}
+.stbl thead th.sc{z-index:6}
+
+.day-hd{display:flex;flex-direction:column;align-items:center;padding:4px 1px;gap:1px}
+.day-n{font-size:12px;font-weight:700;line-height:1}
+.day-w{font-size:9px;color:var(--text-l);line-height:1}
+.sat .day-n,.sat .day-w{color:#2563eb}.sun .day-n,.sun .day-w{color:#dc2626}
+.night-warn-hd .day-n,.night-warn-hd .day-w{color:#dc2626 !important}
+.night-warn-hd{background:#fef2f2 !important}
+
+/* staff name cell */
+.sname-cell{padding:5px 8px;background:var(--surface)}
+.sn-name{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sn-role{font-size:10px;color:var(--text-l);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* shift cell */
+.xcell{width:var(--cw);height:44px;text-align:center;vertical-align:middle;cursor:pointer;user-select:none;padding:1px;position:relative}
+.xcell:hover{filter:brightness(.93)}
+.xcell.sat-bg{background:#eff6ff}.xcell.sun-bg{background:#fef2f2}
+.xcell.future-cell{opacity:.85}
+.sbadge{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:5px;font-size:13px;font-weight:900;color:#fff;margin:auto}
+.sbadge.empty{background:transparent;color:#cbd5e1;font-size:20px;font-weight:300}
+
+/* aggregation */
+.agg-cell{text-align:center;padding:4px;font-weight:700;font-size:12px;background:#f8fafc}
+.agg-hd{text-align:center;padding:3px 2px;font-size:10px;font-weight:700;background:#f8fafc;color:var(--text-l)}
+.agg-hd span{display:block;font-size:11px;font-weight:900;color:var(--text)}
+
+/* night coverage row */
+.nrow td{height:22px;font-size:11px;font-weight:700}
+.nrow .sc{color:var(--text-l);font-size:10px;font-weight:700;padding:0 6px}
+.night-ok{background:#f0fdf4;color:var(--success);text-align:center}
+.night-ng{background:#fef2f2;color:var(--danger);text-align:center;font-weight:900}
+.night-none{background:#f8fafc;color:var(--border);text-align:center}
+
+/* empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:60px 20px;color:var(--text-l);text-align:center}
+.empty-state .es-icon{font-size:48px}
+.empty-state p{font-size:14px}
+
+/* summary bar */
+.summary-bar{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.sb-item{display:flex;align-items:center;gap:5px;font-size:12px}
+.sb-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.sb-ok{color:var(--success);font-weight:700}.sb-ng{color:var(--danger);font-weight:700}
+
+/* ── Staff / Settings screens ── */
+.page-content{flex:1;overflow-y:auto;padding:14px}
+.card{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
+.card h4{font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text)}
+.form-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+.fg{display:flex;flex-direction:column;gap:3px}
+.fg label{font-size:10px;font-weight:700;color:var(--text-l)}
+.fg input,.fg select{font-family:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text)}
+.fg input:focus,.fg select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(37,99,235,.15)}
+.w70{width:70px}.w110{width:110px}.w160{width:160px}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);gap:8px}
+.list-item:last-child{border-bottom:none}
+.li-info{flex:1;min-width:0}
+.li-name{font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px}
+.li-sub{font-size:11px;color:var(--text-l);margin-top:1px}
+.li-actions{display:flex;gap:4px;flex-shrink:0}
+.cdot-lg{width:18px;height:18px;border-radius:4px;display:inline-block;flex-shrink:0}
+
+/* ── PIN ── */
+.pin-box{background:var(--surface);border-radius:16px;padding:28px;text-align:center;width:290px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.pin-box h3{font-size:17px;margin-bottom:6px}
+.pin-sub{font-size:12px;color:var(--text-l);margin-bottom:18px;min-height:16px}
+.pin-dots{display:flex;justify-content:center;gap:10px;margin-bottom:20px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);transition:all .15s}
+.pin-dot.filled{background:var(--primary);border-color:var(--primary)}
+.pin-dot.error{background:var(--danger);border-color:var(--danger);animation:shake .3s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;max-width:210px;margin:0 auto}
+.pin-key{padding:13px;font-size:20px;font-weight:700;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);cursor:pointer;transition:all .1s;-webkit-tap-highlight-color:transparent}
+.pin-key:active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pin-key.fn{font-size:12px;color:var(--text-l)}
+.pin-cancel{margin-top:12px;background:none;border:none;color:var(--text-l);font-size:13px;cursor:pointer;font-family:inherit;padding:8px 14px}
+
+/* ── Modal ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(3px)}
+.overlay.active{display:flex}
+.modal{background:var(--surface);border-radius:14px;padding:20px;min-width:260px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal h3{font-size:15px;margin-bottom:14px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.shift-pick{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 0}
+.sopt{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px;border-radius:9px;border:2px solid var(--border);cursor:pointer;transition:all .1s}
+.sopt:hover{border-color:#94a3b8;background:var(--bg)}
+.sopt.sel{border-color:var(--primary);background:#eff6ff}
+.sopt .ob{width:36px;height:36px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff}
+.sopt .ol{font-size:11px;font-weight:700;color:var(--text)}
+.sopt .ot{font-size:9px;color:var(--text-l);text-align:center;line-height:1.3}
+.sopt.erase-o{border-color:#fecaca}.sopt.erase-o:hover{background:#fef2f2;border-color:var(--danger)}
+.sopt.erase-o .ob{background:#f1f5f9;color:var(--text-l);font-size:18px;font-weight:300}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:700;z-index:500;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+
+/* ── Print ── */
+@media print {
+  .hdr,.paint-bar,.summary-bar{display:none!important}
+  .screen{display:flex!important;height:auto}
+  .grid-wrap{overflow:visible;padding:0}
+  .tbl-outer{box-shadow:none;overflow:visible}
+  body{background:#fff}
+  .xcell{cursor:default}
+}
+
+/* Color input */
+input[type="color"]{width:38px;height:34px;border:1px solid var(--border);border-radius:6px;padding:2px;cursor:pointer}
+
+@media(max-width:560px){
+  :root{--sw:88px;--cw:34px;--aw:44px}
+  .logo{font-size:12px}.month-lbl{font-size:13px;min-width:75px}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════
+     SCREEN: シフト表
+════════════════════════════════════ -->
+<div id="screenShift" class="screen active">
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="logo">📋 シフト管理</div>
+      <div class="month-nav">
+        <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+        <div class="month-lbl" id="monthLbl" onclick="goToday()"></div>
+        <button class="nav-btn" onclick="changeMonth(1)">›</button>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <button class="btn btn-ghost" onclick="requirePin('staff')">スタッフ</button>
+      <button class="btn btn-ghost" onclick="requirePin('settings')">設定</button>
+      <button class="btn btn-success" onclick="exportCSV()">CSV</button>
+      <button class="btn btn-ghost" onclick="window.print()">印刷</button>
+    </div>
+  </div>
+  <div class="paint-bar" id="paintBar">
+    <span class="paint-lbl">シフトを選んでセルをクリック →</span>
+    <div id="paintChips"></div>
+    <span class="paint-hint" id="paintHint"></span>
+  </div>
+  <div class="grid-wrap">
+    <div class="tbl-outer" id="tblOuter"></div>
+  </div>
+  <div class="summary-bar" id="summaryBar"></div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN: スタッフ管理
+════════════════════════════════════ -->
+<div id="screenStaff" class="screen">
+  <div class="hdr">
+    <div class="hdr-left"><div class="logo">👥 スタッフ管理</div></div>
+    <div class="hdr-right">
+      <button class="btn btn-ghost" onclick="showScreen('shift')">← 戻る</button>
+    </div>
+  </div>
+  <div class="page-content">
+    <div class="card">
+      <h4>スタッフを追加</h4>
+      <div class="form-row">
+        <div class="fg"><label>名前</label><input type="text" id="sNameInput" class="w160" placeholder="山田 太郎"></div>
+        <div class="fg"><label>役職</label>
+          <select id="sRoleInput" class="w110">
+            <option>世話人</option><option>生活支援員</option><option>サービス管理責任者</option><option>管理者</option><option>その他</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="addStaff()">追加</button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>スタッフ一覧</h4>
+      <div id="staffList"></div>
+    </div>
+    <div style="text-align:center;margin-top:20px">
+      <span style="font-size:12px;color:var(--text-l);cursor:pointer;text-decoration:underline" onclick="showPinChange()">管理パスワードを変更</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN: シフト種別設定
+════════════════════════════════════ -->
+<div id="screenSettings" class="screen">
+  <div class="hdr">
+    <div class="hdr-left"><div class="logo">⚙ シフト種別設定</div></div>
+    <div class="hdr-right">
+      <button class="btn btn-ghost" onclick="showScreen('shift')">← 戻る</button>
+    </div>
+  </div>
+  <div class="page-content">
+    <div class="card">
+      <h4>シフト種別を追加</h4>
+      <div class="form-row">
+        <div class="fg"><label>名称</label><input type="text" id="stLabelInput" class="w110" placeholder="早番"></div>
+        <div class="fg"><label>略称（1〜2字）</label><input type="text" id="stShortInput" class="w70" maxlength="2" placeholder="早"></div>
+        <div class="fg"><label>開始時刻</label><input type="time" id="stStartInput" class="w110"></div>
+        <div class="fg"><label>終了時刻</label><input type="time" id="stEndInput" class="w110"></div>
+        <div class="fg"><label>色</label><input type="color" id="stColorInput" value="#2563eb"></div>
+        <div class="fg"><label>夜間支援</label>
+          <select id="stNightInput" class="w110"><option value="0">なし</option><option value="1">あり（夜勤）</option></select>
+        </div>
+        <button class="btn btn-primary" onclick="addShiftType()">追加</button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>シフト種別一覧</h4>
+      <div id="shiftTypeList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ PIN Overlay ══════════ -->
+<div class="overlay" id="pinOverlay">
+  <div class="pin-box">
+    <h3 id="pinTitle">管理パスワード</h3>
+    <div class="pin-sub" id="pinSub">4桁の数字を入力してください</div>
+    <div class="pin-dots" id="pinDots">
+      <div class="pin-dot"></div><div class="pin-dot"></div>
+      <div class="pin-dot"></div><div class="pin-dot"></div>
+    </div>
+    <div class="pin-pad" id="pinPad">
+      <button class="pin-key" data-v="1">1</button><button class="pin-key" data-v="2">2</button><button class="pin-key" data-v="3">3</button>
+      <button class="pin-key" data-v="4">4</button><button class="pin-key" data-v="5">5</button><button class="pin-key" data-v="6">6</button>
+      <button class="pin-key" data-v="7">7</button><button class="pin-key" data-v="8">8</button><button class="pin-key" data-v="9">9</button>
+      <button class="pin-key fn" data-v="clear">C</button><button class="pin-key" data-v="0">0</button><button class="pin-key fn" data-v="back">←</button>
+    </div>
+    <button class="pin-cancel" onclick="cancelPin()">キャンセル</button>
+  </div>
+</div>
+
+<!-- ══════════ Cell Picker Modal ══════════ -->
+<div class="overlay" id="cellModal">
+  <div class="modal">
+    <h3 id="cellModalTitle">シフトを選択</h3>
+    <div class="shift-pick" id="cellPicker"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeCellModal()">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ Toast ══════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════
+//  Storage
+// ═══════════════════════════════════
+const LS = localStorage;
+const DB = {
+  staff:      () => JSON.parse(LS.getItem('gs_staff')  || 'null') ?? [],
+  setStaff:   (d) => LS.setItem('gs_staff',  JSON.stringify(d)),
+  stypes:     () => JSON.parse(LS.getItem('gs_stypes') || 'null') ?? defaultShiftTypes(),
+  setStypes:  (d) => LS.setItem('gs_stypes', JSON.stringify(d)),
+  shifts:     () => JSON.parse(LS.getItem('gs_shifts') || '{}'),
+  setShifts:  (d) => LS.setItem('gs_shifts', JSON.stringify(d)),
+  pin:        () => LS.getItem('gs_pin') || '0000',
+  setPin:     (p) => LS.setItem('gs_pin', p),
+};
+
+function defaultShiftTypes() {
+  return [
+    { id:'day',   label:'日勤', short:'日', startTime:'09:00', endTime:'18:00', color:'#2563eb', isNight:false },
+    { id:'night', label:'夜勤', short:'夜', startTime:'17:00', endTime:'10:00', color:'#7c3aed', isNight:true  },
+    { id:'off',   label:'休み', short:'休', startTime:'',      endTime:'',      color:'#94a3b8', isNight:false },
+    { id:'paid',  label:'有給', short:'有', startTime:'',      endTime:'',      color:'#ec4899', isNight:false },
+  ];
+}
+
+// ═══════════════════════════════════
+//  State
+// ═══════════════════════════════════
+let curYear, curMonth; // 1-based month
+let paintId = null;    // selected shift type id for painting, null = use modal
+let cellTarget = null; // { staffId, date } for modal
+
+(function initDate() {
+  const d = new Date();
+  curYear = d.getFullYear();
+  curMonth = d.getMonth() + 1;
+})();
+
+// ═══════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════
+function fmtDate(y, m, d) {
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+function todayStr() {
+  const d = new Date();
+  return fmtDate(d.getFullYear(), d.getMonth()+1, d.getDate());
+}
+function shiftKey(date, staffId) { return `${date}|${staffId}`; }
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function uid() { return Math.random().toString(36).slice(2,10); }
+
+const DOW_JP = ['日','月','火','水','木','金','土'];
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══════════════════════════════════
+//  Navigation
+// ═══════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  if (name === 'shift') renderAll();
+  if (name === 'staff') renderStaffList();
+  if (name === 'settings') renderShiftTypeList();
+}
+
+function changeMonth(delta) {
+  curMonth += delta;
+  if (curMonth > 12) { curMonth = 1; curYear++; }
+  if (curMonth < 1)  { curMonth = 12; curYear--; }
+  renderAll();
+}
+
+function goToday() {
+  const d = new Date();
+  curYear = d.getFullYear();
+  curMonth = d.getMonth() + 1;
+  renderAll();
+}
+
+// ═══════════════════════════════════
+//  Paint toolbar
+// ═══════════════════════════════════
+function renderPaintBar() {
+  const stypes = DB.stypes();
+  const chips = document.getElementById('paintChips');
+  let html = '';
+  stypes.forEach(st => {
+    const active = paintId === st.id ? ' active' : '';
+    html += `<span class="pchip${active}" onclick="togglePaint('${esc(st.id)}')" style="color:${esc(st.color)}">
+      <span class="cdot" style="background:${esc(st.color)}"></span>${esc(st.label)}
+    </span> `;
+  });
+  html += `<span class="pchip erase${paintId === '__erase__' ? ' active' : ''}" onclick="togglePaint('__erase__')">✕ 消去</span>`;
+  chips.innerHTML = html;
+  document.getElementById('paintHint').textContent = paintId
+    ? (paintId === '__erase__' ? 'セルをクリックして消去' : 'セルをクリックして適用')
+    : 'セルをクリックして選択';
+}
+
+function togglePaint(id) {
+  paintId = paintId === id ? null : id;
+  renderPaintBar();
+}
+
+// ═══════════════════════════════════
+//  Grid rendering
+// ═══════════════════════════════════
+function renderAll() {
+  updateMonthLabel();
+  renderPaintBar();
+  renderGrid();
+  renderSummaryBar();
+}
+
+function updateMonthLabel() {
+  document.getElementById('monthLbl').textContent = `${curYear}年${curMonth}月`;
+}
+
+function renderGrid() {
+  const outer = document.getElementById('tblOuter');
+  const staff = DB.staff();
+  const stypes = DB.stypes();
+  const shifts = DB.shifts();
+
+  if (!staff.length) {
+    outer.innerHTML = `<div class="empty-state">
+      <div class="es-icon">👥</div>
+      <p>スタッフが登録されていません</p>
+      <button class="btn btn-primary" onclick="requirePin('staff')">スタッフを追加する</button>
+    </div>`;
+    return;
+  }
+
+  const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+  const today = todayStr();
+  const nightTypeIds = stypes.filter(t => t.isNight).map(t => t.id);
+  const hasNightTypes = nightTypeIds.length > 0;
+
+  // Precompute night coverage per day
+  const nightCov = {};
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = fmtDate(curYear, curMonth, d);
+    nightCov[date] = staff.some(s => {
+      const sid = shifts[shiftKey(date, s.id)];
+      return sid && nightTypeIds.includes(sid);
+    });
+  }
+
+  // Build day header columns
+  const days = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = fmtDate(curYear, curMonth, d);
+    const dow = new Date(curYear, curMonth-1, d).getDay(); // 0=Sun
+    const isSat = dow === 6, isSun = dow === 0;
+    const noNight = hasNightTypes && !nightCov[date];
+    days.push({ d, date, dow, isSat, isSun, noNight });
+  }
+
+  // Aggregation column headers (per shift type)
+  const aggHeaders = `<th class="ac agg-hd">勤務<span>日数</span></th>` +
+    stypes.map(st => `<th class="ac agg-hd" style="color:${esc(st.color)}">${esc(st.short)}<span>${esc(st.label)}</span></th>`).join('');
+
+  // Day header row
+  const dayHdCols = days.map(({ d, isSat, isSun, noNight }) => {
+    const cls = [isSat ? 'sat' : '', isSun ? 'sun' : '', noNight ? 'night-warn-hd' : ''].filter(Boolean).join(' ');
+    return `<th class="dc ${cls}"><div class="day-hd">
+      <span class="day-n">${d}</span>
+      <span class="day-w">${DOW_JP[new Date(curYear, curMonth-1, d).getDay()]}</span>
+    </div></th>`;
+  }).join('');
+
+  let html = `<table class="stbl"><thead><tr>
+    <th class="sc" style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text-l)">スタッフ</th>
+    ${dayHdCols}
+    ${aggHeaders}
+  </tr></thead><tbody>`;
+
+  // Staff rows
+  staff.forEach(s => {
+    let workDays = 0;
+    const typeCounts = {};
+    stypes.forEach(st => typeCounts[st.id] = 0);
+
+    const dayCells = days.map(({ d, date, isSat, isSun }) => {
+      const sid = shifts[shiftKey(date, s.id)];
+      const st = sid ? stypes.find(t => t.id === sid) : null;
+      if (st) {
+        workDays++;
+        if (typeCounts[st.id] !== undefined) typeCounts[st.id]++;
+      }
+      const bgCls = isSat ? ' sat-bg' : (isSun ? ' sun-bg' : '');
+      const badge = st
+        ? `<span class="sbadge" style="background:${esc(st.color)}">${esc(st.short)}</span>`
+        : `<span class="sbadge empty">+</span>`;
+      return `<td class="xcell${bgCls}" onclick="handleCellClick('${esc(s.id)}','${esc(date)}')">${badge}</td>`;
+    }).join('');
+
+    const aggCells = `<td class="agg-cell">${workDays || '—'}</td>` +
+      stypes.map(st => `<td class="agg-cell" style="color:${esc(st.color)}">${typeCounts[st.id] || '—'}</td>`).join('');
+
+    html += `<tr>
+      <td class="sc sname-cell">
+        <div class="sn-name">${esc(s.name)}</div>
+        <div class="sn-role">${esc(s.role)}</div>
+      </td>
+      ${dayCells}
+      ${aggCells}
+    </tr>`;
+  });
+
+  // Night coverage row
+  if (hasNightTypes) {
+    const nightCells = days.map(({ date }) => {
+      const covered = nightCov[date];
+      if (covered) return `<td class="night-ok">✓</td>`;
+      return `<td class="night-ng">✗</td>`;
+    }).join('');
+    const nightAgg = `<td class="agg-cell" colspan="${stypes.length + 1}" style="font-size:10px;color:var(--text-l)">夜間支援</td>`;
+    html += `<tr class="nrow">
+      <td class="sc sname-cell"><div class="sn-role">夜間支援体制</div></td>
+      ${nightCells}
+      ${nightAgg}
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  outer.innerHTML = html;
+}
+
+function renderSummaryBar() {
+  const bar = document.getElementById('summaryBar');
+  const staff = DB.staff();
+  const stypes = DB.stypes();
+  const shifts = DB.shifts();
+  const nightTypeIds = stypes.filter(t => t.isNight).map(t => t.id);
+  const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+
+  if (!staff.length || !nightTypeIds.length) { bar.innerHTML = ''; return; }
+
+  let coveredDays = 0, missingDays = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = fmtDate(curYear, curMonth, d);
+    const covered = staff.some(s => {
+      const sid = shifts[shiftKey(date, s.id)];
+      return sid && nightTypeIds.includes(sid);
+    });
+    if (covered) coveredDays++; else missingDays++;
+  }
+
+  const allOk = missingDays === 0;
+  bar.innerHTML = `
+    <span class="sb-item"><span class="sb-dot" style="background:#7c3aed"></span>夜間支援体制：</span>
+    <span class="${allOk ? 'sb-ok' : 'sb-ng'}">${allOk ? `全${daysInMonth}日カバー済み ✓` : `未対応 ${missingDays}日 ✗`}</span>
+    <span style="font-size:11px;color:var(--text-l);margin-left:4px">（カバー済み ${coveredDays}日）</span>
+  `;
+}
+
+// ═══════════════════════════════════
+//  Cell click
+// ═══════════════════════════════════
+function handleCellClick(staffId, date) {
+  if (paintId !== null) {
+    applyShift(staffId, date, paintId === '__erase__' ? null : paintId);
+    return;
+  }
+  openCellModal(staffId, date);
+}
+
+function applyShift(staffId, date, shiftTypeId) {
+  const shifts = DB.shifts();
+  const key = shiftKey(date, staffId);
+  if (shiftTypeId === null) {
+    delete shifts[key];
+  } else {
+    shifts[key] = shiftTypeId;
+  }
+  DB.setShifts(shifts);
+  renderGrid();
+  renderSummaryBar();
+}
+
+// ═══════════════════════════════════
+//  Cell Modal
+// ═══════════════════════════════════
+function openCellModal(staffId, date) {
+  cellTarget = { staffId, date };
+  const staff = DB.staff().find(s => s.id === staffId);
+  const stypes = DB.stypes();
+  const shifts = DB.shifts();
+  const currentId = shifts[shiftKey(date, staffId)];
+
+  const [y, m, d] = date.split('-');
+  const dow = DOW_JP[new Date(+y, +m-1, +d).getDay()];
+  document.getElementById('cellModalTitle').textContent =
+    `${esc(staff?.name)} — ${+m}/${+d}（${dow}）`;
+
+  const picker = document.getElementById('cellPicker');
+  let html = stypes.map(st => {
+    const sel = currentId === st.id ? ' sel' : '';
+    const timeStr = st.startTime && st.endTime ? `${st.startTime}〜${st.endTime}` : '';
+    return `<div class="sopt${sel}" onclick="selectShiftFromModal('${esc(st.id)}')">
+      <div class="ob" style="background:${esc(st.color)}">${esc(st.short)}</div>
+      <div class="ol">${esc(st.label)}</div>
+      <div class="ot">${esc(timeStr)}</div>
+    </div>`;
+  }).join('');
+  html += `<div class="sopt erase-o" onclick="selectShiftFromModal(null)">
+    <div class="ob">✕</div>
+    <div class="ol">消去</div>
+    <div class="ot"></div>
+  </div>`;
+  picker.innerHTML = html;
+  document.getElementById('cellModal').classList.add('active');
+}
+
+function selectShiftFromModal(shiftTypeId) {
+  if (!cellTarget) return;
+  applyShift(cellTarget.staffId, cellTarget.date, shiftTypeId);
+  closeCellModal();
+}
+
+function closeCellModal() {
+  document.getElementById('cellModal').classList.remove('active');
+  cellTarget = null;
+}
+
+// ═══════════════════════════════════
+//  Staff management
+// ═══════════════════════════════════
+function addStaff() {
+  const name = document.getElementById('sNameInput').value.trim();
+  const role = document.getElementById('sRoleInput').value;
+  if (!name) { showToast('名前を入力してください'); return; }
+  const staff = DB.staff();
+  staff.push({ id: uid(), name, role });
+  DB.setStaff(staff);
+  document.getElementById('sNameInput').value = '';
+  renderStaffList();
+  showToast(`${name} を追加しました`);
+}
+
+function deleteStaff(id) {
+  if (!confirm('このスタッフを削除しますか？')) return;
+  DB.setStaff(DB.staff().filter(s => s.id !== id));
+  renderStaffList();
+}
+
+function renderStaffList() {
+  const staff = DB.staff();
+  const list = document.getElementById('staffList');
+  if (!staff.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-l);font-size:13px">スタッフが登録されていません</div>';
+    return;
+  }
+  list.innerHTML = staff.map(s => `
+    <div class="list-item">
+      <div class="li-info">
+        <div class="li-name">${esc(s.name)}</div>
+        <div class="li-sub">${esc(s.role)}</div>
+      </div>
+      <div class="li-actions">
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);border-color:#fecaca" onclick="deleteStaff('${esc(s.id)}')">削除</button>
+      </div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════
+//  Shift type management
+// ═══════════════════════════════════
+function addShiftType() {
+  const label = document.getElementById('stLabelInput').value.trim();
+  const short = document.getElementById('stShortInput').value.trim();
+  const startTime = document.getElementById('stStartInput').value;
+  const endTime = document.getElementById('stEndInput').value;
+  const color = document.getElementById('stColorInput').value;
+  const isNight = document.getElementById('stNightInput').value === '1';
+  if (!label || !short) { showToast('名称と略称は必須です'); return; }
+  const stypes = DB.stypes();
+  stypes.push({ id: uid(), label, short, startTime, endTime, color, isNight });
+  DB.setStypes(stypes);
+  document.getElementById('stLabelInput').value = '';
+  document.getElementById('stShortInput').value = '';
+  document.getElementById('stStartInput').value = '';
+  document.getElementById('stEndInput').value = '';
+  renderShiftTypeList();
+  showToast(`「${label}」を追加しました`);
+}
+
+function deleteShiftType(id) {
+  if (!confirm('このシフト種別を削除しますか？')) return;
+  DB.setStypes(DB.stypes().filter(t => t.id !== id));
+  renderShiftTypeList();
+}
+
+function renderShiftTypeList() {
+  const stypes = DB.stypes();
+  const list = document.getElementById('shiftTypeList');
+  list.innerHTML = stypes.map(st => {
+    const timeStr = st.startTime && st.endTime ? `${st.startTime}〜${st.endTime}` : '時間なし';
+    const nightTag = st.isNight ? ' <span style="color:#7c3aed;font-size:10px;font-weight:700">夜間支援</span>' : '';
+    return `<div class="list-item">
+      <div class="li-info">
+        <div class="li-name">
+          <span class="cdot-lg" style="background:${esc(st.color)}"></span>
+          ${esc(st.label)}（${esc(st.short)}）${nightTag}
+        </div>
+        <div class="li-sub">${esc(timeStr)}</div>
+      </div>
+      <div class="li-actions">
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);border-color:#fecaca" onclick="deleteShiftType('${esc(st.id)}')">削除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════
+//  CSV Export
+// ═══════════════════════════════════
+function exportCSV() {
+  const staff = DB.staff();
+  const stypes = DB.stypes();
+  const shifts = DB.shifts();
+  const daysInMonth = new Date(curYear, curMonth, 0).getDate();
+
+  const dateHeaders = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = DOW_JP[new Date(curYear, curMonth-1, d).getDay()];
+    dateHeaders.push(`${d}(${dow})`);
+  }
+
+  const aggHeaders = ['勤務日数', ...stypes.map(t => t.label)];
+  const header = ['スタッフ名', '役職', ...dateHeaders, ...aggHeaders].join(',');
+
+  const rows = staff.map(s => {
+    const dayCells = [];
+    let workDays = 0;
+    const typeCounts = {};
+    stypes.forEach(t => typeCounts[t.id] = 0);
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = fmtDate(curYear, curMonth, d);
+      const sid = shifts[shiftKey(date, s.id)];
+      const st = sid ? stypes.find(t => t.id === sid) : null;
+      if (st) { workDays++; if (typeCounts[st.id] !== undefined) typeCounts[st.id]++; }
+      dayCells.push(st ? st.short : '');
+    }
+    const aggCells = [workDays, ...stypes.map(t => typeCounts[t.id])];
+    return [`"${s.name}"`, `"${s.role}"`, ...dayCells, ...aggCells].join(',');
+  });
+
+  const BOM = '﻿';
+  const csv = BOM + [header, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `シフト表_${curYear}年${String(curMonth).padStart(2,'0')}月.csv`;
+  a.click();
+  showToast('CSVを出力しました');
+}
+
+// ═══════════════════════════════════
+//  PIN
+// ═══════════════════════════════════
+let pinBuf = '', pinCb = null, pinMode = 'auth', pinNewFirst = '';
+
+function requirePin(target) {
+  pinMode = 'auth'; pinBuf = ''; pinCb = (ok) => { if (ok) showScreen(target); };
+  document.getElementById('pinTitle').textContent = '管理パスワード';
+  document.getElementById('pinSub').textContent = '4桁の数字を入力してください';
+  renderPinDots();
+  document.getElementById('pinOverlay').classList.add('active');
+}
+
+function showPinChange() {
+  pinMode = 'setNew'; pinBuf = ''; pinNewFirst = ''; pinCb = null;
+  document.getElementById('pinTitle').textContent = 'パスワード変更';
+  document.getElementById('pinSub').textContent = '新しい4桁パスワードを入力';
+  renderPinDots();
+  document.getElementById('pinOverlay').classList.add('active');
+}
+
+function cancelPin() {
+  document.getElementById('pinOverlay').classList.remove('active');
+  pinBuf = ''; pinCb = null;
+}
+
+function renderPinDots(err) {
+  document.querySelectorAll('#pinDots .pin-dot').forEach((d, i) => {
+    d.classList.toggle('filled', i < pinBuf.length);
+    d.classList.toggle('error', !!err);
+  });
+}
+
+document.getElementById('pinPad').addEventListener('click', (e) => {
+  const k = e.target.closest('.pin-key');
+  if (!k) return;
+  const v = k.dataset.v;
+  if (v === 'clear') { pinBuf = ''; renderPinDots(); return; }
+  if (v === 'back')  { pinBuf = pinBuf.slice(0,-1); renderPinDots(); return; }
+  if (pinBuf.length >= 4) return;
+  pinBuf += v;
+  renderPinDots();
+  if (pinBuf.length === 4) setTimeout(handlePinComplete, 150);
+});
+
+function handlePinComplete() {
+  if (pinMode === 'auth') {
+    if (pinBuf === DB.pin()) {
+      document.getElementById('pinOverlay').classList.remove('active');
+      if (pinCb) pinCb(true);
+      pinBuf = '';
+    } else {
+      renderPinDots(true);
+      setTimeout(() => { pinBuf = ''; renderPinDots(); document.getElementById('pinSub').textContent = 'パスワードが違います'; }, 400);
+    }
+  } else if (pinMode === 'setNew') {
+    pinNewFirst = pinBuf; pinBuf = ''; pinMode = 'confirmNew';
+    document.getElementById('pinSub').textContent = '確認のためもう一度入力してください';
+    renderPinDots();
+  } else if (pinMode === 'confirmNew') {
+    if (pinBuf === pinNewFirst) {
+      DB.setPin(pinBuf);
+      document.getElementById('pinOverlay').classList.remove('active');
+      showToast('パスワードを変更しました');
+      pinBuf = '';
+    } else {
+      renderPinDots(true);
+      setTimeout(() => {
+        pinBuf = ''; pinMode = 'setNew'; pinNewFirst = '';
+        document.getElementById('pinSub').textContent = '一致しません。最初からやり直してください';
+        renderPinDots();
+      }, 400);
+    }
+  }
+}
+
+// Close modals on backdrop click
+document.getElementById('cellModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('cellModal')) closeCellModal();
+});
+
+// ═══════════════════════════════════
+//  Init
+// ═══════════════════════════════════
+renderAll();
+</script>
+</body>
+</html>
